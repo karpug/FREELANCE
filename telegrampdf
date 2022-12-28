@@ -1,0 +1,101 @@
+const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+
+const logFile = fs.createWriteStream('./log.txt', { flags: 'a' });
+
+// Telegram API anahtarınızı buraya yazın
+const TOKEN = '5780649490:AAF7NB1bmeM62SOOHQGhUX1fIE9nWfrnjW0';
+
+// Botu oluşturun
+const bot = new TelegramBot(TOKEN, {polling: true});
+
+bot.on('message', (msg) => {
+  const chatId = msg.chat.id;
+  const username = msg.from.username;
+
+  // Kontrol etmek istediğiniz kullanıcı adlarını bir diziye ekleyin
+  const blockedUsernames = ['user1', 'user2'];
+  if (blockedUsernames.includes(username)) {
+     bot.sendMessage(chatId, `Üzgünüm bot üzerinden kalıcı olarak engellendiniz.`);
+    // Eğer kullanıcı adı bir yasaklı kullanıcı adı ise, yanıt vermeyin
+    return;
+  }
+  
+// Dosyaları sıralama komutunu işleme
+bot.onText(/\/dosyalar/, (msg) => {
+  const chatId = msg.chat.id;
+
+  // "files" klasöründeki dosyaları al
+  fs.readdir('./files', (err, files) => {
+    if (err) {
+      throw err;
+    }
+
+    // Dosyaları alfabetik olarak sırala
+    files.sort();
+
+    // Sıralanmış dosyaların listesini göster
+    bot.sendMessage(chatId, `Sıralanmış dosyalar: ${files.join(', ')}\n\nLütfen indirmek istediğiniz dosyanın numarasını girin:`, {
+      reply_markup: {
+        inline_keyboard: files.map((file, index) => [{
+          text: `${index + 1}. ${file}`,
+          callback_data: file
+        }])
+      }
+    });
+  });
+});
+
+// İndirme talebini işleme
+bot.on('callback_query', (query) => {
+  const fileName = query.data;
+  const chatId = query.message.chat.id;
+
+  // Dosyayı indirin
+  bot.sendDocument(chatId, `./files/${fileName}`);
+});
+
+// Selam verme mesajını gönder
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  const userName = msg.from.first_name;
+    bot.sendMessage(chatId, `Merhaba ${userName} 👋
+    
+-Sadece 30 MB veya altındaki PDF dosyalarını alıp sisteme kaydedebilirim. Lütfen sadece 30 MB veya altındaki PDF dosyalarını gönderin. 
+
+-Kpss dosyası haricinde bir dosya gönderirseniz sistemden kalıcı olarak engellenirsiniz.`);
+});
+
+// Gelen dosyaları işleme
+bot.on('document', (msg) => {
+   const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const username = msg.from.username;
+  const fileId = msg.document.file_id;
+  const fileName = msg.document.file_name;
+  const currentDate = new Date();
+
+  // Dosya PDF dosyası mı ve dosya adı "KPSS" ibaresi içeriyor mu?
+   // Check if the file is a PDF and is less than 20 MB
+  if (msg.document.mime_type === 'application/pdf' && msg.document.file_size < 30 * 1024 * 1024) {
+    // PDF dosyasını indirin
+    bot.downloadFile(fileId, './').then((path) => {
+      // Dosyayı "files" klasörüne taşıyın
+      fs.rename(path, './files/' + fileName, (err) => {
+        if (err) {
+          throw err;
+        }
+        
+ // Txt dosyasına kaydet
+    logFile.write(`[${currentDate}] Kullanıcı ID: ${userId} - Kullanıcı ADI: ${username} - Dosya adı: ${fileName}\n`);
+        
+        // Kullanıcıya bir mesaj gönderin
+        bot.sendMessage(chatId, 'PDF dosyası başarıyla kaydedildi.');
+      });
+    });
+  } else {
+    // Kullanıcıya bir hata mesajı gönderin
+    bot.sendMessage(chatId, 'Lütfen 30 MB ve altındaki PDF Dosyasını yükleyin.');
+  }
+});
+  });
