@@ -1,101 +1,159 @@
 const TelegramBot = require('node-telegram-bot-api');
+const moment = require('moment-timezone');
 const fs = require('fs');
+const path = require('path');
+
+const turkishDateTime = moment().tz('Europe/Istanbul').format('YYYY-MM-DD HH:mm:ss');
+
+const blockedUsernames = ['thionte'];
 
 const logFile = fs.createWriteStream('./log.txt', { flags: 'a' });
 
-// Telegram API anahtarınızı buraya yazın
-const TOKEN = '5780649490:AAF7NB1bmeM62SOOHQGhUX1fIE9nWfrnjW0';
+// Botunuz için bir token alın ve buraya yazın
+const TOKEN = '5780649490:AAFJtT3hlmn_KiAS07FO2g81MP3OeHpzULg';
 
-// Botu oluşturun
+// Botunuzu oluşturun ve başlatın
 const bot = new TelegramBot(TOKEN, {polling: true});
 
+let merhaba = false;
 bot.on('message', (msg) => {
+    if (merhaba) {
+    return;
+  }
+  merhaba = true;
   const chatId = msg.chat.id;
   const username = msg.from.username;
 
-  // Kontrol etmek istediğiniz kullanıcı adlarını bir diziye ekleyin
-  const blockedUsernames = ['user1', 'user2'];
+    // Kontrol etmek istediğiniz kullanıcı adlarını bir diziye ekleyin
   if (blockedUsernames.includes(username)) {
-     bot.sendMessage(chatId, `Üzgünüm bot üzerinden kalıcı olarak engellendiniz.`);
+     bot.sendMessage(chatId, `Bot üzerinden kalıcı olarak siktir çekildiniz. Orospu çocukluğunuzu başka yerlerde sergilemeniz dileğiyle. Bye Bye...`);
     // Eğer kullanıcı adı bir yasaklı kullanıcı adı ise, yanıt vermeyin
     return;
   }
   
-// Dosyaları sıralama komutunu işleme
-bot.onText(/\/dosyalar/, (msg) => {
-  const chatId = msg.chat.id;
 
-  // "files" klasöründeki dosyaları al
-  fs.readdir('./files', (err, files) => {
+bot.onText(/\/dosyalar/, (msg) => {
+  bot.sendMessage(msg.chat.id, 'Lütfen indirmek istediğiniz dosyaların hangi klasörden olacağını seçin:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: 'Denemeler',
+            callback_data: 'denemeler'
+          },
+          {
+            text: 'Konu Anlatım',
+            callback_data: 'konuanlatim'
+          },
+          {
+            text: 'Soru Bankası',
+            callback_data: 'sorubankası'
+          }
+        ]
+      ]
+    }
+  });
+
+  // /dosyalar komutunun sadece bir kez çalıştırılması için dinleyiciyi kaldırın
+
+});
+
+bot.on('callback_query', (query) => {
+  const folder = query.data;
+  fs.readdir(`./${folder}`, (err, files) => {
     if (err) {
       throw err;
     }
 
-    // Dosyaları alfabetik olarak sırala
-    files.sort();
+    const pdfFiles = files.filter((file) => file.endsWith('.pdf'));
 
-    // Sıralanmış dosyaların listesini göster
-    bot.sendMessage(chatId, `Sıralanmış dosyalar: ${files.join(', ')}\n\nLütfen indirmek istediğiniz dosyanın numarasını girin:`, {
-      reply_markup: {
-        inline_keyboard: files.map((file, index) => [{
-          text: `${index + 1}. ${file}`,
-          callback_data: file
-        }])
+    let fileList = '';
+    pdfFiles.forEach((file, index) => {
+      fileList += `${index + 1}. ${file}\n`;
+    });
+    bot.sendMessage(query.message.chat.id, fileList);
+
+    bot.on('message', (msg) => {
+      const fileIndex = msg.text - 1;
+      if (fileIndex >= 0 && fileIndex < pdfFiles.length) {
+        const filePath = path.join(`./${folder}`, pdfFiles[fileIndex]);
+        bot.sendDocument(msg.chat.id, filePath);
+        bot.sendMessage(msg.chat.id, 'Dosya numarası başarıyla seçildi. İndiriliyor...');
+        } else {
+        bot.sendMessage(msg.chat.id, 'Geçersiz dosya numarası seçildi. Lütfen tekrar deneyin.');
       }
     });
   });
 });
-
-// İndirme talebini işleme
-bot.on('callback_query', (query) => {
-  const fileName = query.data;
-  const chatId = query.message.chat.id;
-
-  // Dosyayı indirin
-  bot.sendDocument(chatId, `./files/${fileName}`);
-});
-
+// Kullanıcı botu başlattığında, botun ne olduğunu yazdırın
 // Selam verme mesajını gönder
 bot.onText(/\/start/, (msg) => {
+
   const chatId = msg.chat.id;
   const userName = msg.from.first_name;
-    bot.sendMessage(chatId, `Merhaba ${userName} 👋
+  bot.sendMessage(chatId, `Merhaba ${userName} 👋
     
 -Sadece 30 MB veya altındaki PDF dosyalarını alıp sisteme kaydedebilirim. Lütfen sadece 30 MB veya altındaki PDF dosyalarını gönderin. 
 
--Kpss dosyası haricinde bir dosya gönderirseniz sistemden kalıcı olarak engellenirsiniz.`);
+-Kpss dosyası haricinde bir dosya gönderirseniz sistemden kalıcı olarak engellenirsiniz.
+
+-Pdf Boyutunu Küçült - https://www.ilovepdf.com/tr/pdf-kucultme`);
+});
 });
 
-// Gelen dosyaları işleme
+// Kullanıcıdan bir PDF dosyası yüklemesini isteyin
 bot.on('document', (msg) => {
-   const chatId = msg.chat.id;
+  // Dosya bilgilerini alın
+  const chatId = msg.chat.id;
   const userId = msg.from.id;
   const username = msg.from.username;
   const fileId = msg.document.file_id;
-  const fileName = msg.document.file_name;
-  const currentDate = new Date();
+  let fileName = msg.document.file_name;
 
-  // Dosya PDF dosyası mı ve dosya adı "KPSS" ibaresi içeriyor mu?
-   // Check if the file is a PDF and is less than 20 MB
+  // Kullanıcıdan dosya kaydedilecek klasörü seçmesini isteyin
+  bot.sendMessage(msg.chat.id, 'Lütfen PDF Dosyanız Hangi Kategorideyse Onu Seçiniz:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+         {
+            text: 'Denemeler',
+            callback_data: 'denemeler'
+          },
+          {
+            text: 'Konu Anlatım',
+            callback_data: 'konuanlatim'
+          },
+          {
+            text: 'Soru Bankası',
+            callback_data: 'sorubankası'
+          }
+        ]
+      ]
+    }
+  });
+
+   // '.pdf' uzantısını silin ve '@kpsspdflistesi.pdf' ile değiştirin.
+  fileName = fileName.replace('.pdf', '');
+  fileName = `${fileName} @kpsspdflistesi.pdf`;
+  
+  // Kullanıcının seçimine göre dosyayı indirin ve kaydedin
+  bot.on('callback_query', (query) => {
+    const folder = query.data;
+    
   if (msg.document.mime_type === 'application/pdf' && msg.document.file_size < 30 * 1024 * 1024) {
-    // PDF dosyasını indirin
-    bot.downloadFile(fileId, './').then((path) => {
-      // Dosyayı "files" klasörüne taşıyın
-      fs.rename(path, './files/' + fileName, (err) => {
+    bot.downloadFile(fileId, './').then((filePath) => {
+      fs.rename(filePath, `./${folder}/${fileName}`, (err) => {
         if (err) {
           throw err;
         }
-        
- // Txt dosyasına kaydet
-    logFile.write(`[${currentDate}] Kullanıcı ID: ${userId} - Kullanıcı ADI: ${username} - Dosya adı: ${fileName}\n`);
-        
-        // Kullanıcıya bir mesaj gönderin
-        bot.sendMessage(chatId, 'PDF dosyası başarıyla kaydedildi.');
+              logFile.write(`[${turkishDateTime}] Kullanıcı ID: ${userId} - Kullanıcı ADI: ${username} - Dosya adı: ${fileName}\n`);
+        bot.sendMessage(chatId, 'Dosya seçtiğiniz klasöre başarıyla kaydedildi.');
       });
-    });
+       });
   } else {
+    
     // Kullanıcıya bir hata mesajı gönderin
-    bot.sendMessage(chatId, 'Lütfen 30 MB ve altındaki PDF Dosyasını yükleyin.');
+    bot.sendMessage(chatId, 'Lütfen Sadece PDF Yükleyin ve Dosya Boyutu Dosya < 30 MB Olsun.');
   }
-});
+    });
   });
